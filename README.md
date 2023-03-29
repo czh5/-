@@ -57,3 +57,24 @@ _增加样本数据量后：_
 * 样本量：1200+（每个模板对应的问法平均50种）
 * 训练集与测试集的比例为 0.8 : 0.2
 * 朴素贝叶斯模型的准确率：0.96
+
+<br>
+
+_增加模型后：_
+* 增加了决策树模型
+* 经过测试，决策树分类器的准确率在0.95左右
+* 与朴素贝叶斯模型的准确率相差不大，因此保留朴素贝叶斯分类器，使用时自行选择
+
+### 展示
+
+1. 以“草鱼怎么养”为例
+    * 前端展示
+      <br>
+      ![前端图片](.\src\main\resources\statics\data\picture\前端.png)
+    * 后端展示
+      <br>
+      ![后端图片1](.\src\main\resources\statics\data\picture\后台1.png)
+      ![后端图片2](.\src\main\resources\statics\data\picture\后台2.png)
+2. 其他
+   <br>
+   ![其他图片](.\src\main\resources\statics\data\picture\其他.png)
