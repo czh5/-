@@ -70,11 +70,11 @@ _增加模型后：_
 1. 以“草鱼怎么养”为例
     * 前端展示
       <br>
-      ![前端图片](.\src\main\resources\statics\data\picture\前端.png)
+      ![前端图片](https://s1.ax1x.com/2023/03/29/ppcIYjg.png)
     * 后端展示
       <br>
-      ![后端图片1](.\src\main\resources\statics\data\picture\后台1.png)
-      ![后端图片2](.\src\main\resources\statics\data\picture\后台2.png)
+      ![后端图片1](https://s1.ax1x.com/2023/03/29/ppcINuQ.png)
+      ![后端图片2](https://s1.ax1x.com/2023/03/29/ppcIUBj.png)
 2. 其他
    <br>
-   ![其他图片](.\src\main\resources\statics\data\picture\其他.png)
+   ![其他图片](https://s1.ax1x.com/2023/03/29/ppcIwEn.png)
