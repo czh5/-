@@ -9,8 +9,6 @@ import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.mllib.classification.NaiveBayes;
 import org.apache.spark.mllib.classification.NaiveBayesModel;
-import org.apache.spark.mllib.classification.SVMModel;
-import org.apache.spark.mllib.classification.SVMWithSGD;
 import org.apache.spark.mllib.linalg.Vector;
 import org.apache.spark.mllib.linalg.Vectors;
 import org.apache.spark.mllib.regression.LabeledPoint;
@@ -18,6 +16,8 @@ import org.apache.spark.mllib.regression.LabeledPoint;
 import com.hankcs.hanlp.HanLP;
 import com.hankcs.hanlp.seg.Segment;
 import com.hankcs.hanlp.seg.common.Term;
+import org.apache.spark.mllib.tree.DecisionTree;
+import org.apache.spark.mllib.tree.model.DecisionTreeModel;
 import scala.Tuple2;
 
 /**
@@ -29,7 +29,8 @@ public class CoreProcessor {
     private String rootDirPath;
 
     /**Spark分类器*/
-    private NaiveBayesModel model;    //朴素贝叶斯
+    private NaiveBayesModel nb_model;           //朴素贝叶斯
+    private DecisionTreeModel dt_model;         //决策树
 
     /**分类标签号和问句模板对应表*/
     private Map<Double, String> questionsPattern;
@@ -50,7 +51,8 @@ public class CoreProcessor {
         // 加载词汇表
         vocabulary = loadVocabulary();
         // 加载分类模型，初始化分类器对象
-        model = loadClassifierModel();
+        nb_model = loadNaiveBayesClassifierModel();
+        dt_model = loadDecisionTreeClassifierModel();
     }
 
     /**
@@ -189,6 +191,33 @@ public class CoreProcessor {
         return vocabulary;
     }
 
+    /**
+     * 读取问题模板，并将其转化为LabeledPoint格式
+     * @return
+     * @throws Exception
+     */
+    public List<LabeledPoint> getSamplesList() throws Exception{
+        List<LabeledPoint> sample_list = new LinkedList<>();
+        String[] sentences;
+        Map<Integer, String> seqWithSamples = loadQuestionSamples("question/question_samples.txt");
+        if(seqWithSamples == null || seqWithSamples.size() == 0){
+            throw new Exception("缺少问题训练样本，请核查！");
+        }
+
+        for (Map.Entry<Integer, String> entry : seqWithSamples.entrySet()) {
+            //得到问题编号
+            Integer seq = entry.getKey();
+            String sampleContent = entry.getValue();
+            //得到该问题的所有问法
+            sentences = sampleContent.split("`");
+            for (String sentence : sentences) {
+                double[] array = sentenceToArrays(sentence);
+                LabeledPoint sample = new LabeledPoint(seq, Vectors.dense(array));
+                sample_list.add(sample);
+            }
+        }
+        return sample_list;
+    }
 
     /**
      * 句子分词后与词汇表进行key匹配转换为double向量数组
@@ -222,94 +251,94 @@ public class CoreProcessor {
      * @return
      * @throws Exception
      */
-    public NaiveBayesModel loadClassifierModel() throws Exception {
-
-        /**
-         * 生成Spark对象
-         * 一、Spark程序是通过SparkContext发布到Spark集群的
-         * Spark程序的运行都是在SparkContext为核心的调度器的指挥下进行的
-         * Spark程序的结束是以SparkContext结束作为结束
-         * JavaSparkContext对象用来创建Spark的核心RDD的
-         * 注意：第一个RDD,一定是由SparkContext来创建的
-         *
-         * 二、SparkContext的主构造器参数为 SparkConf
-         * SparkConf必须设置appname和master，否则会报错
-         * spark.master   用于设置部署模式
-         * local[*] == 本地运行模式[也可以是集群的形式]，如果需要多个线程执行，可以设置为local[2],表示2个线程 ，*表示多个
-         * spark.app.name 用于指定应用的程序名称  ==
-         */
+    public NaiveBayesModel loadNaiveBayesClassifierModel() throws Exception {
 
         SparkConf conf = new SparkConf().setAppName("NaiveBayesModel").setMaster("local[*]");
         JavaSparkContext sc = new JavaSparkContext(conf);
 
-        /**
-         * 训练集生成
-         * labeled point 是一个局部向量，要么是密集型的要么是稀疏型的
-         * 用一个label/response进行关联。在MLlib里，labeled points 被用来监督学习算法
-         * 使用一个double数来存储一个label，因此能够使用labeled points进行回归和分类
-         */
-        List<LabeledPoint> sample_list = new LinkedList<>();
-        String[] sentences;
-        Map<Double, String> seqWithSamples = loadQuestionSamples("question/question_samples.txt");
-        if(seqWithSamples == null || seqWithSamples.size() == 0){
-            throw new Exception("缺少问题训练样本，请核查！");
-        }
+        /**样本集*/
+        List<LabeledPoint> sample_list = getSamplesList();
 
-        for (Map.Entry<Double, String> entry : seqWithSamples.entrySet()) {
-            //得到问题编号
-            Double seq = entry.getKey();
-            String sampleContent = entry.getValue();
-            //得到该问题的所有问法
-            sentences = sampleContent.split("`");
-            for (String sentence : sentences) {
-                double[] array = sentenceToArrays(sentence);
-                LabeledPoint sample = new LabeledPoint(seq, Vectors.dense(array));
-                sample_list.add(sample);
-            }
-        }
-
-        /**
-         * SPARK的核心是RDD(弹性分布式数据集)
-         * Spark是Scala写的,JavaRDD就是Spark为Java写的一套API
-         * JavaSparkContext sc = new JavaSparkContext(sparkConf);    //对应JavaRDD
-         * SparkContext	    sc = new SparkContext(sparkConf)    ;    //对应RDD
-         */
+        /**训练集和测试集*/
         JavaRDD<LabeledPoint> rdd = sc.parallelize(sample_list);
         JavaRDD<LabeledPoint>[] tmp = rdd.randomSplit(new double[]{0.8, 0.2});
         JavaRDD<LabeledPoint> training = tmp[0]; // 训练集
         JavaRDD<LabeledPoint> test = tmp[1];    // 测试集
 
         /**开始训练样本*/
-        NaiveBayesModel model = NaiveBayes.train(training.rdd(), 1.0);
+        NaiveBayesModel nb_model = NaiveBayes.train(training.rdd(), 1.0);
 
 
         /**模型准确率*/
         JavaPairRDD<Double, Double> predictionAndLabel =
-            test.mapToPair(p -> new Tuple2<>(model.predict(p.features()), p.label()));
+            test.mapToPair(p -> new Tuple2<>(nb_model.predict(p.features()), p.label()));
         double accuracy = predictionAndLabel.filter(pl -> pl._1().equals(pl._2())).count() / (double) test.count();
-        System.out.println("准确率 == " + accuracy);
+        System.out.println("朴素贝叶斯分类器准确率 == " + accuracy);
 
         /** 关闭资源*/
         sc.close();
         /** 返回分类器*/
-        return model;
+        return nb_model;
+    }
+
+    /**
+     * Spark决策树(DecisionTree)
+     * 对特定的模板进行加载并分类
+     * @return
+     * @throws Exception
+     */
+    public DecisionTreeModel loadDecisionTreeClassifierModel() throws Exception {
+
+        SparkConf conf = new SparkConf().setAppName("SVMModel").setMaster("local[*]");
+        JavaSparkContext sc = new JavaSparkContext(conf);
+
+        /**样本集*/
+        List<LabeledPoint> sample_list = getSamplesList();
+
+        /**得到训练集和测试集*/
+        JavaRDD<LabeledPoint> rdd = sc.parallelize(sample_list);
+        JavaRDD<LabeledPoint>[] tmp = rdd.randomSplit(new double[]{0.8, 0.2});
+        JavaRDD<LabeledPoint> training = tmp[0]; // 训练集
+        JavaRDD<LabeledPoint> test = tmp[1];    // 测试集
+
+
+        /**开始训练样本*/
+        // 设置决策树参数
+        int numClasses = 26;    //问题模板的数量
+        Map<Integer, Integer> categoricalFeaturesInfo = new HashMap<>();    //类别特征信息，全视为连续特征，键值对都为0
+        String impurity = "entropy";   //不纯度，gini或者entropy
+        int maxDepth = 16;      //树的最大深度
+        int maxBins = 32;       //最大划分数
+        // 训练决策树模型
+        DecisionTreeModel dt_model = DecisionTree.trainClassifier(training, numClasses, categoricalFeaturesInfo, impurity, maxDepth, maxBins);
+        // 对测试集进行预测
+        JavaPairRDD<Double, Double> predictionAndLabel = test.mapToPair(p -> new Tuple2<>(dt_model.predict(p.features()), p.label()));
+        // 计算测试误差
+        double testErr = predictionAndLabel.filter(pl -> !pl._1().equals(pl._2())).count() / (double) test.count();
+        System.out.println("决策树分类器误差 == " + testErr);
+        System.out.println("决策树分类器准确率 == " + (1 - testErr));
+
+        /** 关闭资源*/
+        sc.close();
+        /** 返回分类器*/
+        return dt_model;
     }
 
     /**
      * 加载问题样本数据，并返回每个样本的序号和内容键值对
-     * @param path 路径（可以是文件夹，也可以是单个文件）
-     * @return Map<Double,String>
+     * @param path 路径
+     * @return Map<Integer,String>
      */
-    public Map<Double,String> loadQuestionSamples(String path) throws IOException {
+    public Map<Integer,String> loadQuestionSamples(String path) throws IOException {
 
         File file = new File(rootDirPath+path);
         if(!file.exists()){
             throw new IOException("文件不存在！");
         }
 
-        Map<Double,String> seqWithSamples = new HashMap<>(16);
+        Map<Integer,String> seqWithSamples = new HashMap<>(16);
         BufferedReader br = new BufferedReader(new FileReader(file));
-        Double seqStr = null;   //模板编号
+        Integer seqStr = null;   //模板编号
         String content = "";
         String line;
         while ((line = br.readLine()) != null) {
@@ -322,7 +351,7 @@ public class CoreProcessor {
                     seqWithSamples.put(seqStr, content);
                     content = "";
                 }
-                seqStr = Double.parseDouble(line.split(" ")[1]);
+                seqStr = Integer.parseInt(line.split(" ")[1]);
                 continue;
             }
             /**文本的换行符用"`"代替，content保存了一个模板对应的所有问法*/
@@ -366,7 +395,7 @@ public class CoreProcessor {
     }
 
     /**
-     * 贝叶斯分类器分类的结果，拿到匹配的分类标签号，后续可根据标签号定位到指定的问题模板
+     * 分类器分类的结果，拿到匹配的分类标签号，后续可根据标签号定位到指定的问题模板
      * @param sentence 句子
      * @return
      * @throws Exception
@@ -381,16 +410,24 @@ public class CoreProcessor {
          * 根据词汇使用的频率推断出句子对应哪一个模板
          * 原则：高频率的会被预测出
          */
-        double index = model.predict(v);
+        System.out.println("-----------------------朴素贝叶斯分类器------------------------");
+        double index = nb_model.predict(v);
         modelIndex = (int)index;
         System.out.println("the model index is " + index);
-        Vector vRes = model.predictProbabilities(v);
+        Vector vRes = nb_model.predictProbabilities(v);
         double[] probabilities = vRes.toArray();
         System.out.println("============ 问题模板分类概率 =============");
         for (int i = 0; i < probabilities.length; i++) {
             System.out.println("问题模板分类【"+i+"】概率："+String.format("%.5f", probabilities[i]));
         }
         System.out.println("============ 问题模板分类概率 =============");
+
+        System.out.println("-----------------------决策树分类器------------------------");
+        double index2 = dt_model.predict(v);
+        System.out.println("the model index is " + index2);
+        System.out.println("-----朴素贝叶斯分类器和决策树分类器的分类结果：" + (index == index2 ? "相同" : "不同") + "-------");
+
+        /**这里返回index还是index2则表明选用哪个分类器的分类结果，也就相当于使用哪个模型*/
         return questionsPattern.get(index);
 
     }
