@@ -10,13 +10,14 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>com.heng</groupId>
     <artifactId>Spring-Neo4j-AquaticProducts</artifactId>
-    <version>1.0-SNAPSHOT</version>
+    <version>1.0</version>
     <packaging>war</packaging>
     <description>SpringBoot集成Neo4j,结合Spark朴素贝叶斯分类器实现知识图谱的水产品问答功能</description>
 
     <properties>
         <java.version>1.8</java.version>
         <janino.version>3.0.8</janino.version>
+        <spark.version>3.1.1</spark.version>
         <skipTests>true</skipTests>
     </properties>
 
@@ -69,22 +70,50 @@
             <artifactId>spring-boot-starter-thymeleaf</artifactId>
         </dependency>
 
+        <!-- Spark Core -->
         <dependency>
             <groupId>org.apache.spark</groupId>
             <artifactId>spark-core_2.12</artifactId>
-            <version>2.4.0</version>
+            <version>${spark.version}</version>
+            <exclusions>
+                <exclusion>
+                    <artifactId>avro</artifactId>
+                    <groupId>org.apache.avro</groupId>
+                </exclusion>
+                <exclusion>
+                    <artifactId>commons-compress</artifactId>
+                    <groupId>org.apache.commons</groupId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <!-- Spark SQL -->
+        <dependency>
+            <groupId>org.apache.spark</groupId>
+            <artifactId>spark-sql_2.12</artifactId>
+            <version>${spark.version}</version>
             <exclusions>
                 <exclusion>
                     <groupId>org.slf4j</groupId>
                     <artifactId>slf4j-log4j12</artifactId>
                 </exclusion>
+                <exclusion>
+                    <artifactId>commons-compiler</artifactId>
+                    <groupId>org.codehaus.janino</groupId>
+                </exclusion>
             </exclusions>
         </dependency>
-
+        <!-- Spark MLlib -->
         <dependency>
             <groupId>org.apache.spark</groupId>
             <artifactId>spark-mllib_2.12</artifactId>
-            <version>2.4.0</version>
+            <version>${spark.version}</version>
+        </dependency>
+
+        <!-- https://mvnrepository.com/artifact/ai.catboost/catboost-prediction -->
+        <dependency>
+            <groupId>ai.catboost</groupId>
+            <artifactId>catboost-spark_3.1_2.12</artifactId>
+            <version>1.0.6</version>
         </dependency>
 
         <dependency>
@@ -99,6 +128,13 @@
         </dependency>
 
     </dependencies>
+
+    <repositories>
+        <repository>
+            <id>sonatype</id>
+            <url>https://oss.sonatype.org/content/repositories/releases/</url>
+        </repository>
+    </repositories>
 
     <build>
         <finalName>${project.artifactId}</finalName>
