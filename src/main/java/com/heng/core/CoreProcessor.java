@@ -3,21 +3,23 @@ package com.heng.core;
 import java.io.*;
 import java.util.*;
 
+import ai.catboost.spark.CatBoostClassificationModel;
+import ai.catboost.spark.CatBoostClassifier;
 import org.apache.spark.SparkConf;
-import org.apache.spark.api.java.JavaPairRDD;
-import org.apache.spark.api.java.JavaRDD;
-import org.apache.spark.api.java.JavaSparkContext;
-import org.apache.spark.mllib.classification.NaiveBayes;
-import org.apache.spark.mllib.classification.NaiveBayesModel;
-import org.apache.spark.mllib.linalg.Vector;
-import org.apache.spark.mllib.linalg.Vectors;
-import org.apache.spark.mllib.regression.LabeledPoint;
+import org.apache.spark.ml.classification.DecisionTreeClassificationModel;
+import org.apache.spark.ml.classification.DecisionTreeClassifier;
+import org.apache.spark.ml.feature.LabeledPoint;
+import org.apache.spark.ml.classification.NaiveBayes;
+import org.apache.spark.ml.classification.NaiveBayesModel;
+import org.apache.spark.ml.linalg.Vector;
+import org.apache.spark.ml.linalg.Vectors;
 
 import com.hankcs.hanlp.HanLP;
 import com.hankcs.hanlp.seg.Segment;
 import com.hankcs.hanlp.seg.common.Term;
-import org.apache.spark.mllib.tree.DecisionTree;
-import org.apache.spark.mllib.tree.model.DecisionTreeModel;
+import org.apache.spark.sql.Dataset;
+import org.apache.spark.sql.Row;
+import org.apache.spark.sql.SparkSession;
 import scala.Tuple2;
 
 /**
@@ -30,7 +32,8 @@ public class CoreProcessor {
 
     /**Spark分类器*/
     private NaiveBayesModel nb_model;           //朴素贝叶斯
-    private DecisionTreeModel dt_model;         //决策树
+    private DecisionTreeClassificationModel dt_model;         //决策树
+    //private CatBoostClassificationModel cat_model;  //CatBoost
 
     /**分类标签号和问句模板对应表*/
     private Map<Double, String> questionsPattern;
@@ -44,15 +47,28 @@ public class CoreProcessor {
     /** 分类模板索引*/
     int modelIndex = 0;
 
+    /** 模板的数量*/
+    private int modelNum = 26;  //也就是准备了多少个模板
+
     public CoreProcessor(String rootDirPath) throws Exception{
         this.rootDirPath = rootDirPath+'/';
         // 加载问题模板
         questionsPattern = loadQuestionTemplates();
         // 加载词汇表
         vocabulary = loadVocabulary();
+        //加载样本集
+        List<LabeledPoint> sample_list = getSamplesList();
         // 加载分类模型，初始化分类器对象
-        nb_model = loadNaiveBayesClassifierModel();
-        dt_model = loadDecisionTreeClassifierModel();
+        Tuple2<NaiveBayesModel, Double> nb = loadNaiveBayesClassifierModel(sample_list);
+        Tuple2<DecisionTreeClassificationModel, Double> dt = loadDecisionTreeClassifierModel(sample_list);
+        //Tuple2<CatBoostClassificationModel, Double> cat = loadCatBoostClassificationModel(sample_list);
+        nb_model = nb._1;
+        dt_model = dt._1;
+        //cat_model = cat._1;
+
+        System.out.println("朴素贝叶斯分类器的准确率 == " + nb._2);
+        System.out.println("决策树分类器的准确率 == " + dt._2);
+        //System.out.println("CatBoost分类器的准确率 == " + cat._2);
     }
 
     /**
@@ -251,34 +267,32 @@ public class CoreProcessor {
      * @return
      * @throws Exception
      */
-    public NaiveBayesModel loadNaiveBayesClassifierModel() throws Exception {
+    public Tuple2<NaiveBayesModel, Double> loadNaiveBayesClassifierModel(List<LabeledPoint> sample_list) throws Exception {
 
+        // 创建SparkSession
         SparkConf conf = new SparkConf().setAppName("NaiveBayesModel").setMaster("local[*]");
-        JavaSparkContext sc = new JavaSparkContext(conf);
+        SparkSession spark = SparkSession.builder().config(conf).getOrCreate();
 
-        /**样本集*/
-        List<LabeledPoint> sample_list = getSamplesList();
-
-        /**训练集和测试集*/
-        JavaRDD<LabeledPoint> rdd = sc.parallelize(sample_list);
-        JavaRDD<LabeledPoint>[] tmp = rdd.randomSplit(new double[]{0.8, 0.2});
-        JavaRDD<LabeledPoint> training = tmp[0]; // 训练集
-        JavaRDD<LabeledPoint> test = tmp[1];    // 测试集
+        // 将JavaRDD转换为Dataset
+        Dataset<Row> dataset = spark.createDataFrame(sample_list, LabeledPoint.class);
+        // 划分数据集
+        Dataset<Row>[] splits = dataset.randomSplit(new double[]{0.8, 0.2});
+        Dataset<Row> trainData = splits[0];
+        Dataset<Row> testData = splits[1];
 
         /**开始训练样本*/
-        NaiveBayesModel nb_model = NaiveBayes.train(training.rdd(), 1.0);
-
+        NaiveBayesModel nb_model = new NaiveBayes().fit(trainData);
 
         /**模型准确率*/
-        JavaPairRDD<Double, Double> predictionAndLabel =
-            test.mapToPair(p -> new Tuple2<>(nb_model.predict(p.features()), p.label()));
-        double accuracy = predictionAndLabel.filter(pl -> pl._1().equals(pl._2())).count() / (double) test.count();
-        System.out.println("朴素贝叶斯分类器准确率 == " + accuracy);
+        // 使用分类器进行预测
+        Dataset<Row> predictions = nb_model.transform(testData).select("prediction");
+        // 计算准确率
+        double accuracy = predictions.filter("prediction=label").count() / (double) testData.count();
 
         /** 关闭资源*/
-        sc.close();
+        spark.close();
         /** 返回分类器*/
-        return nb_model;
+        return new Tuple2<>(nb_model, accuracy);
     }
 
     /**
@@ -287,41 +301,71 @@ public class CoreProcessor {
      * @return
      * @throws Exception
      */
-    public DecisionTreeModel loadDecisionTreeClassifierModel() throws Exception {
+    public Tuple2<DecisionTreeClassificationModel, Double> loadDecisionTreeClassifierModel(List<LabeledPoint> sample_list) throws Exception {
 
-        SparkConf conf = new SparkConf().setAppName("SVMModel").setMaster("local[*]");
-        JavaSparkContext sc = new JavaSparkContext(conf);
+        // 创建SparkSession
+        SparkConf conf = new SparkConf().setAppName("DecisionTreeModel").setMaster("local[*]");
+        SparkSession spark = SparkSession.builder().config(conf).getOrCreate();
 
-        /**样本集*/
-        List<LabeledPoint> sample_list = getSamplesList();
-
-        /**得到训练集和测试集*/
-        JavaRDD<LabeledPoint> rdd = sc.parallelize(sample_list);
-        JavaRDD<LabeledPoint>[] tmp = rdd.randomSplit(new double[]{0.8, 0.2});
-        JavaRDD<LabeledPoint> training = tmp[0]; // 训练集
-        JavaRDD<LabeledPoint> test = tmp[1];    // 测试集
+        // 将JavaRDD转换为Dataset
+        Dataset<Row> dataset = spark.createDataFrame(sample_list, LabeledPoint.class);
+        // 划分数据集
+        Dataset<Row>[] splits = dataset.randomSplit(new double[]{0.8, 0.2});
+        Dataset<Row> trainData = splits[0];
+        Dataset<Row> testData = splits[1];
 
 
         /**开始训练样本*/
         // 设置决策树参数
-        int numClasses = 26;    //问题模板的数量
-        Map<Integer, Integer> categoricalFeaturesInfo = new HashMap<>();    //类别特征信息，全视为连续特征，键值对都为0
+        int numClasses = modelNum;    //问题模板的数量
         String impurity = "entropy";   //不纯度，gini或者entropy
         int maxDepth = 16;      //树的最大深度
         int maxBins = 32;       //最大划分数
         // 训练决策树模型
-        DecisionTreeModel dt_model = DecisionTree.trainClassifier(training, numClasses, categoricalFeaturesInfo, impurity, maxDepth, maxBins);
-        // 对测试集进行预测
-        JavaPairRDD<Double, Double> predictionAndLabel = test.mapToPair(p -> new Tuple2<>(dt_model.predict(p.features()), p.label()));
-        // 计算测试误差
-        double testErr = predictionAndLabel.filter(pl -> !pl._1().equals(pl._2())).count() / (double) test.count();
-        System.out.println("决策树分类器误差 == " + testErr);
-        System.out.println("决策树分类器准确率 == " + (1 - testErr));
+        DecisionTreeClassifier classifier =
+                new DecisionTreeClassifier().setMaxBins(maxBins).setMaxDepth(maxDepth).setImpurity(impurity);
+        DecisionTreeClassificationModel dt_model = classifier.fit(trainData);
+        // 使用分类器进行预测
+        Dataset<Row> predictions = dt_model.transform(testData).select("prediction");
+        // 计算准确率
+        double accuracy = predictions.filter("prediction=label").count() / (double) testData.count();
 
         /** 关闭资源*/
-        sc.close();
+        spark.close();
         /** 返回分类器*/
-        return dt_model;
+        return new Tuple2<>(dt_model, accuracy);
+    }
+
+    /**
+     * CatBoost分类器
+     * */
+    public Tuple2<CatBoostClassificationModel, Double> loadCatBoostClassificationModel(List<LabeledPoint> sample_list) {
+        // 创建SparkSession
+        SparkConf conf = new SparkConf().setAppName("CatBoostClassificationModel").setMaster("local[*]");
+        SparkSession spark = SparkSession.builder().config(conf).getOrCreate();
+
+        // 将JavaRDD转换为Dataset
+        Dataset<Row> dataset = spark.createDataFrame(sample_list, LabeledPoint.class);
+        // 划分数据集
+        Dataset<Row>[] splits = dataset.randomSplit(new double[]{0.8, 0.2});
+        Dataset<Row> trainData = splits[0];
+        Dataset<Row> testData = splits[1];
+        // 定义分类器
+        CatBoostClassifier classifier = new CatBoostClassifier();
+        classifier.setIterations(10);
+        classifier.setLearningRate(0.1f);
+        classifier.setDepth(5);
+        classifier.setLossFunction("MultiClass");
+        // 训练分类器
+        CatBoostClassificationModel model = classifier.fit(trainData);
+        // 使用分类器进行预测
+        Dataset<Row> predictions = model.transform(testData).select("prediction");
+        // 计算准确率
+        double accuracy = predictions.filter("prediction=label").count() / (double) testData.count();
+        // 关闭SparkSession
+        spark.close();
+        // 返回模型和准确率
+        return new Tuple2<>(model, accuracy);
     }
 
     /**
@@ -362,7 +406,6 @@ public class CoreProcessor {
 
         return seqWithSamples;
     }
-
 
     /**
      * 加载问题模板 == 分类器标签
@@ -410,24 +453,26 @@ public class CoreProcessor {
          * 根据词汇使用的频率推断出句子对应哪一个模板
          * 原则：高频率的会被预测出
          */
-        System.out.println("-----------------------朴素贝叶斯分类器------------------------");
+        //分别使用朴素贝叶斯分类器和决策树分类器预测
         double index = nb_model.predict(v);
+        double index2 = dt_model.predict(v);
+        //此处可以选择准确率最高的那个分类器，为方便选择nb_model
         modelIndex = (int)index;
-        System.out.println("the model index is " + index);
-        Vector vRes = nb_model.predictProbabilities(v);
-        double[] probabilities = vRes.toArray();
+
+        System.out.println("朴素贝叶斯分类器预测该问题属于的模板编号 == " + index);
+        System.out.println("决策树分类器预测该问题属于的模板编号 ===== " + index);
+
+        double[] probabilities = nb_model.predictProbability(v).toArray();
+        double[] probabilities2 = dt_model.predictProbability(v).toArray();
         System.out.println("============ 问题模板分类概率 =============");
         for (int i = 0; i < probabilities.length; i++) {
-            System.out.println("问题模板分类【"+i+"】概率："+String.format("%.5f", probabilities[i]));
+            System.out.println("问题模板分类【"+i+"】概率：" +
+                    String.format("%.5f", probabilities[i]) + "(nb)");
         }
         System.out.println("============ 问题模板分类概率 =============");
 
-        System.out.println("-----------------------决策树分类器------------------------");
-        double index2 = dt_model.predict(v);
-        System.out.println("the model index is " + index2);
-        System.out.println("-----朴素贝叶斯分类器和决策树分类器的分类结果：" + (index == index2 ? "相同" : "不同") + "-------");
 
-        /**这里返回index还是index2则表明选用哪个分类器的分类结果，也就相当于使用哪个模型*/
+        /**这里返回index还是index2则表明选用哪个分类器*/
         return questionsPattern.get(index);
 
     }
