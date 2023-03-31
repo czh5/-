@@ -1,6 +1,8 @@
 package com.heng.config;
 
 import com.heng.utils.CustomDictWordUtils;
+import org.apache.log4j.Level;
+import org.apache.log4j.Logger;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.stereotype.Component;
@@ -57,6 +59,8 @@ public class ConfigRunner implements CommandLineRunner {
             file.delete();
             System.out.println("CustomDictionary.txt.bin delete success .");
         }
+        //出错才打印日志
+        Logger.getRootLogger().setLevel(Level.ERROR);
 
         /**加载自定义的【水产品】字典 == 设置词性 nap 0*/
         loadDict(aquaticProductsDictPath,0);
