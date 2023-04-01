@@ -100,6 +100,31 @@ position: fixed;
 	window.onload = function() {
 
 		var input = document.getElementById('msg_input');//查找缓存
+		loadTips();	//加载提示信息
+
+		function loadTips() {
+			var ul = document.getElementById('content');
+			var newLi = document.createElement('li');
+			newLi.innerHTML = "正在加载提示信息...";
+			newLi.className = 'msgContent left';
+			ul.appendChild(newLi);
+
+			var div = document.createElement('div');
+			div.style = 'clear:both';
+			ul.appendChild(div);
+			input.value = '';
+			newLi.scrollIntoView();//将元素滚动到可见位置
+
+			ajax({
+				url : '/heng/question/loadTips',
+				success : function(res) {
+					console.log(res);
+					newLi.innerHTML = res;
+				}
+			})
+		}
+
+		//点击发送按钮
 		document.getElementById('sendbtn').onclick = function() {
 			sendMsg();
 		}
