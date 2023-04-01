@@ -12,13 +12,24 @@ import com.heng.service.QuestionService;
 public class QuestionController {
 
     @Autowired
-    QuestionService questService;
+    QuestionService questionService;
+
+    @RequestMapping("/loadTips")
+    public String loadTips() {
+        String tips = null;
+        try {
+            tips = questionService.loadTips();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return tips;
+    }
 
     @RequestMapping("/query")
     public String query(@RequestParam(value = "question") String question) {
         String answer = "系统繁忙，请稍后重试...";
         try {
-            answer = questService.answer(question);
+            answer = questionService.answer(question);
         } catch (Exception e) {
             e.printStackTrace();
         }
