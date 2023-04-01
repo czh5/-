@@ -29,6 +29,12 @@ public class QuestionServiceImpl implements QuestionService {
     private CoreProcessor queryProcess;
 
     @Override
+    public String loadTips() throws Exception {
+        String tips = "当前可查询的水产品包括：" + arrayToString(questionRepository.loadTipsWithAquaticProducts());
+        return tips;
+    }
+
+    @Override
     public String answer(String question) throws Exception {
 
         /**

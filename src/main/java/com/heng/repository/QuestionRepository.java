@@ -14,6 +14,10 @@ import org.springframework.data.repository.query.Param;
  */
 public interface QuestionRepository extends Neo4jRepository<AquaticProduct,Long> {
 
+    //加载提示信息：水产名
+    @Query("match (n:水产品) return n.name")
+    String[] loadTipsWithAquaticProducts();
+
     //问题模板0:nap 别名
     @Query("match (n:水产品) where n.name={name} return n.别名")
     String getAquaticProductsCommonName(@Param("name") String name);
