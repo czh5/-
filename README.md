@@ -40,6 +40,14 @@ _resources.statics.data目录下的文件中_
 2. 将statics.data目录中的marine_products目录在ConfigRunner.java文件中配置路径
 3. 将statics.data/neo4j目录下的文件导入neo4j数据库中
 4. 将statics.data目录中的question目录在CoreProcessor.java文件中配置路径
+5. 在application.properties中将数据库改为正在使用的用户名和密码
+
+<br>
+
+### 注意事项
+
+1. 如果是数据库中新增了数据，例如“水产品”中新增了某种鱼类，那么要将这种鱼的名字添加进对应的字典中
+2. 本系统实现了对实体大多数属性和关系的问答，若要增加新的问题，直接加模板、加代码即可
 
 <br>
 
