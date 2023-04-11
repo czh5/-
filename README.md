@@ -36,7 +36,7 @@ _resources.statics.data目录下的文件中_
 
 ### 部署
 
-1. 下载HanLP字典集，在hanlp.properties文件中设置路径；
+1. 下载HanLP字典集，在hanlp.properties文件中设置路径（[HanLP字典集下载，提取码：sl7i](https://pan.baidu.com/s/1bob0RbWP1QPTL2ZyMaW8IA)）
 2. 将statics.data目录中的marine_products目录在ConfigRunner.java文件中配置路径
 3. 将statics.data/neo4j目录下的文件导入neo4j数据库中
 4. 将statics.data目录中的question目录在CoreProcessor.java文件中配置路径
